@@ -2,6 +2,7 @@
 #include <WiFiClient.h>
 #include <WiFiClientSecure.h>
 #include <PubSubClient.h>
+#include <ArduinoJson.h>
  
 // WiFi //////////////////////////////////////////////////////////////
 const char* ssid     = "WiFiのSSID";
@@ -35,10 +36,11 @@ const char* privateKey = "-----BEGIN RSA PRIVATE KEY-----\n" \
 WiFiClientSecure httpsClient;
 PubSubClient     mqttClient(httpsClient);
 
-static const int     RX_BUF_SIZE = 100000;
+static const int RX_BUF_SIZE = 100000;
 
 long messageSentAt = 0;
 int  dummyValue = 0;
+int  pubFlg     = 0;
 char pubMessage[128];
 
 void setup_wifi(){
@@ -74,14 +76,13 @@ void setup_awsiot(){
 void connect_awsiot() {
   while (!mqttClient.connected()) {
     Serial.print("Attempting MQTT connection...");
-    // Create a random client IDG
     String clientId = "m5stickc";
-    //clientId += String(random(0xffff), HEX);
     // Attempt to connect
     if (mqttClient.connect(clientId.c_str())) {
       Serial.println("connected");
       mqttClient.subscribe(subTopic, 0); // QOS=0
-      Serial.println("subscribed");
+      Serial.print("subscribed ");
+      Serial.println(subTopic);
     } else {
       Serial.print("failed, rc=");
       Serial.print(mqttClient.state());
@@ -100,10 +101,18 @@ void mqttCallback (char* topic, byte* payload, unsigned int length) {
     for (int i = 0; i < length; i++) {
       message[i] = (char)payload[i];
     }
-    Serial.println(message);
 
-    M5.Lcd.setCursor(5, 50);
-    M5.Lcd.printf("Received: %s", message);
+    DynamicJsonDocument doc(200);
+    deserializeJson(doc, message);
+    String command = doc["message"];
+    Serial.print("command:");
+    Serial.println(command);
+    
+    if (command == "start") {
+      pubFlg = 1;
+    } else {
+      pubFlg = 0;
+    }
 }
 
 void setup() {
@@ -127,7 +136,7 @@ void loop() {
   mqttClient.loop();
 
   long now = millis();
-  if (now - messageSentAt > 5000) {
+  if (now - messageSentAt > 5000 && pubFlg  == 1) {
     messageSentAt = now;
     sprintf(pubMessage, "{\"message\": \"%d\"}", dummyValue++);
     Serial.print("Publishing message to topic ");
